@@ -1,0 +1,36 @@
+// Declaraciones básicas
+int a = 28;
+int b = 0b1010;
+int c = 0757;
+int d = 0x1F;
+float f1 = 3.14;
+float f2 = 2e3;
+char ch = 'X';
+boolean flag = true;
+
+/* Operaciones aritméticas y lógicas */
+a = a + 10;
+b = b * 2;
+c = c - 5;
+d = d / 3;
+f1 = f1 + 0.01;
+f2 = f2 - 1e2;
+flag = !flag && false;
+
+// Definición y uso de registros
+record Point(int x, int y);
+Point p = new Point(10, 20);
+int sum = p.x + p.y;
+
+// Condicional y bucle
+if (sum > 20) {
+    print('Y');
+} else {
+    print('N');
+}
+
+int i = 0;
+while (i < 3) {
+    i = i + 1;
+    print(i);
+}
