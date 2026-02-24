@@ -7,7 +7,7 @@ reserved = {
     'true': 'TRUE', 'false': 'FALSE',
     'int': 'INT', 'float': 'FLOAT', 'char': 'CHAR', 'boolean': 'BOOLEAN', 'void': 'VOID',
     'return': 'RETURN', 'if': 'IF', 'else': 'ELSE', 'do': 'DO', 'while': 'WHILE',
-    'print': 'PRINT', 'new': 'NEW', 'record': 'RECORD'
+    'print': 'PRINT', 'new': 'NEW', 'record': 'RECORD', 'break': 'BREAK'
 }
 
 # -----------------------------
@@ -63,11 +63,11 @@ def t_INT_VALUE(t):
     r'0b[01]+|0x[0-9A-Fa-f]+|0[0-7]+|\d+'
     s = t.value
     if s.startswith('0b'):
-        t.value = int(s[2:], 2)
+        t.value = int(s[2:], 2) # Binario
     elif s.startswith('0x'):
-        t.value = int(s[2:], 16)
+        t.value = int(s[2:], 16) # Hexadecimal
     elif s.startswith('0') and len(s) > 1:
-        t.value = int(s[1:], 8)  # octal
+        t.value = int(s[1:], 8)  # Octal
     else:
         t.value = int(s)
     return t
