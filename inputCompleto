@@ -1,0 +1,151 @@
+// ==========================
+// COMENTARIOS
+// ==========================
+
+// Comentario de una línea
+
+/* Comentario
+   multilínea
+   con varias líneas */
+
+// ==========================
+// TIPOS BÁSICOS - ENTEROS
+// ==========================
+
+int d1 = 0;
+int d2 = 495;
+int d3 = 123456;
+int b1 = 0b1010;
+int b2 = 0b111101111;
+int o1 = 0757;
+int o2 = 0123;
+int h1 = 0x1EF;
+int h2 = 0xABC;
+
+// ==========================
+// TIPOS BÁSICOS - FLOATS
+// ==========================
+
+float f1 = 100.001;
+float f2 = 0.5;
+float f3 = 5e5;
+float f4 = 9.87e-2;
+float f5 = 1.5e+3;
+
+// ==========================
+// TIPOS BÁSICOS - CHARS
+// ==========================
+
+char c1 = 'a';
+char c2 = 'Z';
+char c3 = '¿';
+char c4 = '!';
+
+// ==========================
+// TIPOS BÁSICOS - BOOLEANOS
+// ==========================
+
+boolean b3 = true;
+boolean b4 = false;
+
+// ==========================
+// OPERACIONES ARITMÉTICAS
+// ==========================
+
+int suma = 10 + 5;
+int resta = 10 - 5;
+int mult = 10 * 5;
+int divi = 10 / 5;
+int unariaMas = +suma;
+int unariaMenos = -suma;
+
+// ==========================
+// OPERACIONES BOOLEANAS
+// ==========================
+
+boolean and = true && false;
+boolean or = true || false;
+boolean not = !true;
+
+// ==========================
+// OPERACIONES COMPARATIVAS
+// ==========================
+
+boolean gt = 10 > 5;
+boolean ge = 10 >= 10;
+boolean lt = 5 < 10;
+boolean le = 5 <= 5;
+boolean eq = 5 == 5;
+
+// ==========================
+// REGISTROS
+// ==========================
+
+record Vector(float x, float y);
+record Planet(Vector position, Vector velocity, float mass, boolean active);
+
+Planet earth = new Planet(new Vector(0.0, 0.0), new Vector(1.0, 2.0), 5.0, true);
+
+float px = earth.position.x;
+float py = earth.position.y;
+
+// ==========================
+// CONTROL DE FLUJO - IF/ELSE
+// ==========================
+
+if (b3 && !b4) {
+    int x = 1;
+} else {
+    int x = 0;
+}
+
+// ==========================
+// CONTROL DE FLUJO - WHILE + BREAK
+// ==========================
+
+int step = 0;
+while (step < 3) {
+    if (step == 2) {
+        break;
+    }
+    step = step + 1;
+}
+
+// ==========================
+// FUNCIONES
+// ==========================
+
+float calcularPromedio(float a, float b) {
+    float suma2 = a + b;
+    return suma2 / 2.0;
+}
+
+void imprimirValor(int v) {
+    print(v);
+}
+
+float resultado = calcularPromedio(10.5, 5.5);
+
+// ==========================
+// PRINT
+// ==========================
+
+print('Y');
+print(resultado);
+print(true);
+
+// ==========================
+// ERRORES LÉXICOS
+// ==========================
+
+// Entero inválido
+int err1 = 0129;
+
+// Float inválido
+float err2 = 5.;
+
+// Char inválido
+char err3 = '';
+
+// Carácter no reconocido
+int err4 = 5 @ 3;

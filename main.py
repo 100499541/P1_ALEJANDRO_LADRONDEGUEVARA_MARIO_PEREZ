@@ -1,5 +1,5 @@
 import sys
-from lexer import lexer, find_column
+from lexer import lexer, find_column, get_lexeme, get_original_length
 
 def main():
     if len(sys.argv) != 2:
@@ -24,9 +24,15 @@ def main():
             tok = lexer.token()
             if not tok:
                 break
+
             start_col = find_column(data, tok)
-            end_col = start_col + len(str(tok.value))
-            f_out.write(f"{tok.type}, {tok.value}, {tok.lineno}, {start_col}, {end_col}\n")
+            original_len = get_original_length(tok, data)
+            end_col = start_col + original_len
+
+            # Valor a mostrar: texto original para INT/FLOAT/CHAR, valor directo para el resto
+            display_value = get_lexeme(tok, data)
+
+            f_out.write(f"{tok.type}, {display_value}, {tok.lineno}, {start_col}, {end_col}\n")
 
     print(f"Archivo de tokens generado: {output_file}")
 
