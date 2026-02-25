@@ -28,7 +28,7 @@ tokens = [
 ] + list(reserved.values())
 
 # -----------
-# Operadores
+# Operadores ambiguos: definidos como funciones para garantizar orden de matching
 # -----------
 def t_GE(t):
     r'>='
@@ -76,12 +76,13 @@ def t_FLOAT_VALUE(t):
     r'\d+\.\d*([e][+-]?\d*(\.\d+)?)?|\d+[e][+-]?\d*(\.\d+)?|\.\d+'
     lexeme = t.value
 
-    # Error especifico: falta para entera
+    # Detectar errores según el tipo
+    # Error específico: falta para entera
     if lexeme.startswith('.'):
         print(f"Error léxico: falta parte entera en '{lexeme}' en línea {t.lineno}")
         return None
 
-    # Error especifico: falta para decimal
+    # Error específico: falta para decimal
     if '.' in lexeme:
         parte_decimal = lexeme.split('.')[1]
         # Quitar el exponente si lo hay para verificar solo la parte decimal
@@ -90,13 +91,13 @@ def t_FLOAT_VALUE(t):
             print(f"Error léxico: falta parte decimal en '{lexeme}' en línea {t.lineno}")
             return None
 
-    # Error especifico: potencia incompleta
+    # Error específico: potencia incompleta
     if 'e' in lexeme:
         potencia = lexeme.split('e')[1]
         if not potencia or potencia in ('+', '-'):
             print(f"Error léxico: potencia incompleta en '{lexeme}' en línea {t.lineno}")
             return None
-        # Error especifico: potencia con decimales
+        # Error específico: potencia con decimales
         potencia_digits = potencia.lstrip('+-')
         if '.' in potencia_digits:
             print(f"Error léxico: potencia debe ser entera en '{lexeme}' en línea {t.lineno}")
@@ -111,33 +112,40 @@ def t_INT_VALUE(t):
     lexeme = t.value
 
     # Detectar errores según el tipo
+    # Errores para binario
     if lexeme.startswith('0b'):
         digits = lexeme[2:]
+        # Error específico: no hay digitos después del '0b'
         if not digits:
             print(f"Error léxico: literal binario incompleto '0b' en línea {t.lineno}")
             return None
+        # Error específico: caracteres incorrectos después del '0b'
         if not all(c in '01' for c in digits):
             print(f"Error léxico: literal binario inválido '{lexeme}' en línea {t.lineno}")
             return None
         t.value = int(digits, 2)
 
+    # Errores para hexadecimal
     elif lexeme.startswith('0x'):
         digits = lexeme[2:]
+        # Error específico: no hay digitos después del '0x'
         if not digits:
             print(f"Error léxico: literal hexadecimal incompleto '0x' en línea {t.lineno}")
             return None
-        # Solo mayúsculas según la especificación [0-9A-F]
+        # Error específico: caracteres incorrectos después del '0x'
         if not all(c in '0123456789ABCDEF' for c in digits):
             print(f"Error léxico: literal hexadecimal inválido '{lexeme}' en línea {t.lineno}")
             return None
         t.value = int(digits, 16)
 
+    # Errores octal y ceros no significativos
     elif lexeme.startswith('0') and len(lexeme) > 1:
         digits = lexeme[1:]
-        # Ceros no significativos: el primer dígito octal no puede ser 0
+        # Error específico: no puede haber ceros no significativos
         if digits[0] == '0':
             print(f"Error léxico: ceros no significativos '{lexeme}' en línea {t.lineno}")
             return None
+        # Error específico: dígitos incorrectos después del '0'
         if not all(c in '01234567' for c in digits):
             print(f"Error léxico: literal octal inválido '{lexeme}' en línea {t.lineno}")
             return None
@@ -154,12 +162,13 @@ def t_CHAR_VALUE(t):
     lexeme = t.value
     contenido = lexeme[1:-1]  # quitar comillas
 
-    # Char vacío
+    # Detectar errores según el tipo
+    # Error específico: no puede haber un char vacio
     if len(contenido) == 0:
         print(f"Error léxico: char vacío '''' en línea {t.lineno}")
         return None
 
-    # Más de un carácter
+    # Error específico: no puede haber más de un carácter en el char
     if len(contenido) > 1:
         print(f"Error léxico: char con múltiples caracteres '{lexeme}' en línea {t.lineno}")
         return None
@@ -180,11 +189,11 @@ def t_ID(t):
 def t_COMMENT_MULTILINE(t):
     r'/\*[\s\S]*?\*/'
     t.lexer.lineno += t.value.count('\n')
-    pass  # ignorar
+    pass  # Ignorar
 
 def t_COMMENT_SINGLELINE(t):
     r'//[^\n]*'
-    pass  # ignorar
+    pass  # Ignorar
 
 # -----------------------------
 # Saltos de línea
@@ -217,14 +226,15 @@ def find_column(source, token):
 
 # Función para obtener lexema original
 def get_lexeme(tok, source):
-    """Devuelve el texto original del token tal como aparece en el fuente."""
+    # Devuelve el texto original del token tal como aparece en el fuente
+    # Para poder mostrarlo correctamente en el fichero de salida
     if hasattr(tok, 'lexeme'):
         return tok.lexeme
     return str(tok.value)
 
 # Función para obtener longitud original en el fuente
 def get_original_length(tok, source):
-    """Calcula la longitud real del token en el texto fuente."""
+    # Calcula la longitud real del token en el texto fuente.
     col_start = find_column(source, tok)
     # Buscamos el siguiente salto de línea o fin para acotar
     line_end = source.find('\n', tok.lexpos)
@@ -232,15 +242,18 @@ def get_original_length(tok, source):
         line_end = len(source)
     segment = source[tok.lexpos:line_end]
 
+    # Para token INT_VALUE
     if tok.type == 'INT_VALUE':
         import re
         m = re.match(r'0b[01]+|0x[0-9A-F]+|0[0-7]+|0|[1-9][0-9]*', segment)
         return len(m.group(0)) if m else len(str(tok.value))
+    # Para token FLOAT_VALUE
     elif tok.type == 'FLOAT_VALUE':
         import re
         m = re.match(r'\d+\.\d+([eE][+-]?\d+)?|\d+[eE][+-]?\d+', segment)
         return len(m.group(0)) if m else len(str(tok.value))
+    # Para token CHAR_VALUE
     elif tok.type == 'CHAR_VALUE':
-        return 3  # 'x' siempre 3 caracteres
+        return 3  # Siempre 3 caracteres, por ejemplo 'x'
     else:
         return len(str(tok.value))
