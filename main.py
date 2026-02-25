@@ -2,14 +2,14 @@ import sys
 from lexer import lexer, find_column, get_lexeme, get_original_length
 
 def main():
-    # Comprueba que este bien el comando de uso
+    # Comprueba que esté bien el comando de uso
     if len(sys.argv) != 2:
         print("Uso: python main.py <archivo.lava>")
         sys.exit(1)
 
-    # Guarda el input en filename
+    # Obtiene el nombre del archivo de entrada y lo guarda 
     filename = sys.argv[1]
-    # Lo lee
+    # Lee el contenido del archivo de entrada
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             data = f.read()
@@ -33,7 +33,7 @@ def main():
             original_len = get_original_length(tok, data)
             end_col = start_col + original_len
 
-            # Obtiene el valor de texto original a mostrar si es necesario
+            # Obtiene el lexema original del token para mostrarlo en el archivo de salida
             display_value = get_lexeme(tok, data)
 
             # Escribe el conjunto { TIPO, VALOR, LÍNEA, COLUMNA-INICIO, COLUMNA-FIN } para el token actual en el archivo de salida
