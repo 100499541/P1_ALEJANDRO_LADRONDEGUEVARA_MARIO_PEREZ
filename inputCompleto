@@ -9,7 +9,7 @@
    con varias líneas */
 
 // ==========================
-// TIPOS BÁSICOS - ENTEROS
+// TIPOS BÁSICOS - ENTEROS VÁLIDOS
 // ==========================
 
 int d1 = 0;
@@ -23,7 +23,7 @@ int h1 = 0x1EF;
 int h2 = 0xABC;
 
 // ==========================
-// TIPOS BÁSICOS - FLOATS
+// TIPOS BÁSICOS - FLOATS VÁLIDOS
 // ==========================
 
 float f1 = 100.001;
@@ -33,7 +33,7 @@ float f4 = 9.87e-2;
 float f5 = 1.5e+3;
 
 // ==========================
-// TIPOS BÁSICOS - CHARS
+// TIPOS BÁSICOS - CHARS VÁLIDOS
 // ==========================
 
 char c1 = 'a';
@@ -135,17 +135,58 @@ print(resultado);
 print(true);
 
 // ==========================
-// ERRORES LÉXICOS
+// ERRORES LÉXICOS - ENTEROS
 // ==========================
 
-// Entero inválido
-int err1 = 0129;
+// Binario incompleto
+int err1 = 0b;
 
-// Float inválido
-float err2 = 5.;
+// Binario con dígito inválido
+int err2 = 0b102;
 
-// Char inválido
-char err3 = '';
+// Hexadecimal incompleto
+int err3 = 0x;
 
-// Carácter no reconocido
-int err4 = 5 @ 3;
+// Hexadecimal con letra minúscula
+int err4 = 0x1ef;
+
+// Octal con dígito inválido
+int err5 = 0129;
+
+// Octal con ceros no significativos
+int err6 = 0005;
+
+// ==========================
+// ERRORES LÉXICOS - FLOATS
+// ==========================
+
+// Sin parte entera
+float err7 = .5;
+
+// Sin parte decimal
+float err8 = 5.;
+
+// Potencia vacía
+float err9 = 5e;
+
+// Potencia solo con signo
+float err10 = 5e+;
+
+// Potencia con decimales
+float err11 = 5e2.5;
+
+// ==========================
+// ERRORES LÉXICOS - CHARS
+// ==========================
+
+// Char vacío
+char err12 = '';
+
+// Char con múltiples caracteres
+char err13 = 'ab';
+
+// ==========================
+// ERRORES LÉXICOS - CARÁCTER NO RECONOCIDO
+// ==========================
+
+int err14 = 5 @ 3;
