@@ -1,5 +1,5 @@
 import sys
-from lexer import lexer, find_column, get_lexeme, get_original_length
+from lexer import lexer, find_column
 
 def main():
     # Comprueba que esté bien el comando de uso
@@ -7,7 +7,7 @@ def main():
         print("Uso: python main.py <archivo.lava>")
         sys.exit(1)
 
-    # Obtiene el nombre del archivo de entrada y lo guarda 
+    # Obtiene el nombre del archivo de entrada y lo guarda
     filename = sys.argv[1]
     # Lee el contenido del archivo de entrada
     try:
@@ -19,6 +19,7 @@ def main():
 
     # Asignar input al lexer
     lexer.input(data)
+    lexer.source = data
 
     # Crea y escribe el archivo de salida
     output_file = filename.rsplit('.', 1)[0] + '.token'
@@ -28,16 +29,12 @@ def main():
             if not tok:
                 break
 
-            # Obtiene los valores de las columnas de inicio y fin del token
-            start_col = find_column(data, tok)
-            original_len = get_original_length(tok, data)
-            end_col = start_col + original_len
-
-            # Obtiene el lexema original del token para mostrarlo en el archivo de salida
-            display_value = get_lexeme(tok, data)
+            if not hasattr(tok, 'col_start'):
+                tok.col_start = find_column(tok, data)
+                tok.col_end = tok.col_start + len(str(tok.value))
 
             # Escribe el conjunto { TIPO, VALOR, LÍNEA, COLUMNA-INICIO, COLUMNA-FIN } para el token actual en el archivo de salida
-            f_out.write(f"{tok.type}, {display_value}, {tok.lineno}, {start_col}, {end_col}\n")
+            f_out.write(f"{tok.type}, {tok.value}, {tok.lineno}, {tok.col_start}, {tok.col_end}\n")
 
     print(f"Archivo de tokens generado: {output_file}")
 

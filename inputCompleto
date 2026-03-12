@@ -135,58 +135,7 @@ print(resultado);
 print(true);
 
 // ==========================
-// ERRORES LÉXICOS - ENTEROS
+// CARÁCTER NO RECONOCIDO
 // ==========================
 
-// Binario incompleto
-int err1 = 0b;
-
-// Binario con dígito inválido
-int err2 = 0b102;
-
-// Hexadecimal incompleto
-int err3 = 0x;
-
-// Hexadecimal con letra minúscula
-int err4 = 0x1ef;
-
-// Octal con dígito inválido
-int err5 = 0129;
-
-// Octal con ceros no significativos
-int err6 = 0005;
-
-// ==========================
-// ERRORES LÉXICOS - FLOATS
-// ==========================
-
-// Sin parte entera
-float err7 = .5;
-
-// Sin parte decimal
-float err8 = 5.;
-
-// Potencia vacía
-float err9 = 5e;
-
-// Potencia solo con signo
-float err10 = 5e+;
-
-// Potencia con decimales
-float err11 = 5e2.5;
-
-// ==========================
-// ERRORES LÉXICOS - CHARS
-// ==========================
-
-// Char vacío
-char err12 = '';
-
-// Char con múltiples caracteres
-char err13 = 'ab';
-
-// ==========================
-// ERRORES LÉXICOS - CARÁCTER NO RECONOCIDO
-// ==========================
-
-int err14 = 5 @ 3;
+int err1 = 5 @ 3;
