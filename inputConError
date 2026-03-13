@@ -135,6 +135,75 @@ print(resultado);
 print(true);
 
 // ==========================
+// DO-WHILE
+// ==========================
+
+int contador = 0;
+do {
+    contador = contador + 1;
+} while (contador < 5);
+
+// ==========================
+// DECLARACIÓN MÚLTIPLE
+// ==========================
+
+int a, b, c;
+
+// ==========================
+// LLAMADA A FUNCIÓN COMO EXPRESIÓN
+// ==========================
+
+print(calcularPromedio(10.5, 5.5));
+
+// ==========================
+// ASIGNACIÓN A CAMPO DE REGISTRO
+// ==========================
+
+earth.position.x = 3.14;
+
+// ==========================
+// EXPRESIONES COMPUESTAS
+// ==========================
+
+float complex1 = (f1 + f2) * (f3 - f4);
+boolean complex2 = (gt || le) && !(eq);
+int complex3 = -suma + (+resta * divi);
+
+// ==========================
+// IF ANIDADO
+// ==========================
+
+if (gt) {
+    if (lt) {
+        int nested = 1;
+    } else {
+        int nested = 0;
+    }
+}
+
+// ==========================
+// WHILE ANIDADO
+// ==========================
+
+int i = 0;
+while (i < 3) {
+    int j = 0;
+    while (j < 3) {
+        j = j + 1;
+    }
+    i = i + 1;
+}
+
+// ==========================
+// FUNCIÓN CON TIPO REGISTRO
+// ==========================
+
+Vector makeVector(float vx, float vy) {
+    Vector v = new Vector(vx, vy);
+    return v;
+}
+
+// ==========================
 // CARÁCTER NO RECONOCIDO
 // ==========================
 
