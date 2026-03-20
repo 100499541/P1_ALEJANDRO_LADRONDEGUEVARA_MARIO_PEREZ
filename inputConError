@@ -204,7 +204,25 @@ Vector makeVector(float vx, float vy) {
 }
 
 // ==========================
-// CARÁCTER NO RECONOCIDO
+// ERROR SINTÁCTICO - CARÁCTER NO RECONOCIDO
 // ==========================
 
 int err1 = 5 @ 3;
+
+// ==========================
+// ERROR SINTÁCTICO - DECLARACIÓN MÚLTIPLE CON ASIGNACIÓN
+// ==========================
+
+float d, e = 5.0;
+
+// ==========================
+// ERROR SINTÁCTICO - TOKEN INESPERADO EN DECLARACIÓN
+// ==========================
+
+int a float = 3;
+
+// ==========================
+// ERROR SINTÁCTICO - ASIGNACIÓN CON EXPRESIÓN EN LADO IZQUIERDO
+// ==========================
+
+5 + 3 = x;
