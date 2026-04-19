@@ -1,0 +1,2 @@
+Vector:[x:float, y:float]
+Planet:[position:Vector, velocity:Vector, mass:float, active:boolean]

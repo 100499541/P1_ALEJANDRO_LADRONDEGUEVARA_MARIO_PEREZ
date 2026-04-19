@@ -1,0 +1,3 @@
+calcularPromedio:[a:float, b:float],float
+imprimirValor:[v:int],void
+makeVector:[vx:float, vy:float],Vector
