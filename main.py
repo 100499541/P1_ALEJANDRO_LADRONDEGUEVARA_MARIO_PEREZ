@@ -23,8 +23,6 @@ def run_lexer(filename):
                 tok.col_end = tok.col_start + len(str(tok.value))
             f_out.write(f"{tok.type}, {tok.value}, {tok.lineno}, {tok.col_start}, {tok.col_end}\n")
 
-    print(f"Archivo de tokens generado: {output_file}")
-
 def run_analysis(filename):
     from parser import analyze
 
@@ -35,14 +33,7 @@ def run_analysis(filename):
         print(f"No se encontró el archivo '{filename}'")
         sys.exit(1)
 
-    ok = analyze(data, filename)
-    if ok:
-        base = filename.rsplit('.', 1)[0]
-        print(f"Análisis completado sin errores.")
-        print(f"  -> {base}.symbols")
-        print(f"  -> {base}.records")
-        print(f"  -> {base}.functions")
-        print(f"  -> {base}.quartets")
+    analyze(data, filename)
 
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == '--token':

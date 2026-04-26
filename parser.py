@@ -20,6 +20,8 @@ function_table = {}
 
 # Tipo de retorno de la función que se está parseando (para validar return)
 current_return_type = None
+pending_function_return_type = None
+current_function_has_return = False
 
 # Parámetros pendientes de empujar al scope cuando se abre '{' de función
 _pending_params = []
@@ -34,6 +36,7 @@ _label_counter = 0
 # Acumulador de errores y flag global
 semantic_errors = []
 has_errors = False
+loop_depth = 0
 
 
 # =============================================================================
@@ -253,28 +256,50 @@ def p_field_record(p):
 # ---- Función ----
 
 def p_function_def_basic(p):
-    '''function_def : type ID LPAREN param_list RPAREN func_open stmt_block RBRACE'''
+    '''function_def : type ID LPAREN param_list RPAREN function_prep_basic func_open stmt_block RBRACE'''
+    _finalize_function(p[2], p[1], p.lineno(2))
     pop_scope()
     _register_function(p[1], p[2], p[4], p.lineno(2))
 
 def p_function_def_void(p):
-    '''function_def : VOID ID LPAREN param_list RPAREN func_open stmt_block RBRACE'''
+    '''function_def : VOID ID LPAREN param_list RPAREN function_prep_void func_open stmt_block RBRACE'''
+    _finalize_function(p[2], 'void', p.lineno(2))
     pop_scope()
     _register_function('void', p[2], p[4], p.lineno(2))
 
 def p_function_def_record(p):
-    '''function_def : ID ID LPAREN param_list RPAREN func_open stmt_block RBRACE'''
+    '''function_def : ID ID LPAREN param_list RPAREN function_prep_record func_open stmt_block RBRACE'''
+    _finalize_function(p[2], p[1], p.lineno(2))
     pop_scope()
     ret_type = p[1]
     if not is_known_type(ret_type):
         report_error(f"Tipo de retorno desconocido '{ret_type}'.", p.lineno(1))
     _register_function(ret_type, p[2], p[4], p.lineno(2))
 
+def p_function_prep_basic(p):
+    '''function_prep_basic : '''
+    global pending_function_return_type
+    pending_function_return_type = p[-5]
+
+def p_function_prep_void(p):
+    '''function_prep_void : '''
+    global pending_function_return_type
+    pending_function_return_type = 'void'
+
+def p_function_prep_record(p):
+    '''function_prep_record : '''
+    global pending_function_return_type
+    pending_function_return_type = p[-5]
+
 def p_func_open(p):
     '''func_open : LBRACE'''
     # Abrimos el scope con los parámetros pendientes ANTES de parsear el cuerpo
-    global _pending_params, current_return_type
+    global _pending_params, current_return_type, pending_function_return_type
+    global current_function_has_return
     push_scope(_pending_params)
+    current_return_type = pending_function_return_type
+    pending_function_return_type = None
+    current_function_has_return = False
     _pending_params = []
 
 def p_block_open(p):
@@ -326,6 +351,13 @@ def _register_function(ret_type, name, params, lineno):
             return
     function_table[name].append({'params': params or [], 'return_type': ret_type})
     emit('LABEL', f"{name}@func", '_', '_')
+
+def _finalize_function(name, ret_type, lineno):
+    global current_return_type, current_function_has_return
+    if ret_type != 'void' and not current_function_has_return:
+        report_error(f"La función '{name}' debe incluir una sentencia return de tipo '{ret_type}'.", lineno)
+    current_return_type = None
+    current_function_has_return = False
 
 # ---- Bloque de sentencias ----
 
@@ -504,7 +536,7 @@ def p_if_stmt_else(p):
     emit('LABEL', label_end,  '_', '_')
 
 def p_while_stmt(p):
-    '''while_stmt : WHILE LPAREN expr RPAREN block_open stmt_block RBRACE'''
+    '''while_stmt : WHILE LPAREN expr RPAREN loop_enter block_open stmt_block RBRACE loop_exit'''
     ctype, cval = p[3]
     label_start = new_label()
     label_end   = new_label()
@@ -517,8 +549,8 @@ def p_while_stmt(p):
     emit('LABEL', label_end,   '_', '_')
 
 def p_do_while_stmt(p):
-    '''do_while_stmt : DO block_open stmt_block RBRACE WHILE LPAREN expr RPAREN'''
-    ctype, cval = p[7]
+    '''do_while_stmt : DO loop_enter block_open stmt_block RBRACE WHILE LPAREN expr RPAREN loop_exit'''
+    ctype, cval = p[8]
     label_start = new_label()
     pop_scope()
     if ctype != 'boolean':
@@ -528,13 +560,29 @@ def p_do_while_stmt(p):
 
 def p_break_stmt(p):
     '''break_stmt : BREAK SEMICOLON'''
-    pass
+    if loop_depth <= 0:
+        report_error("La sentencia 'break' solo puede aparecer dentro de un bucle.", p.lineno(1))
 
 def p_return_stmt(p):
     '''return_stmt : RETURN expr SEMICOLON'''
-    # La validación del tipo de retorno requeriría propagar current_return_type
-    # Dejamos la comprobación básica para no bloquear el análisis
-    pass
+    global current_function_has_return
+    etype, _ = p[2]
+
+    if current_return_type is None:
+        report_error("La sentencia 'return' solo puede aparecer dentro de una función.", p.lineno(1))
+        return
+
+    if current_return_type == 'void':
+        report_error("Una función de tipo 'void' no puede devolver un valor.", p.lineno(1))
+        return
+
+    if not can_convert(etype, current_return_type):
+        report_error(
+            f"No se puede devolver '{etype}' en una función de tipo '{current_return_type}'.",
+            p.lineno(1))
+        return
+
+    current_function_has_return = True
 
 def p_print_stmt(p):
     '''print_stmt : PRINT LPAREN expr RPAREN SEMICOLON'''
@@ -784,6 +832,18 @@ def p_arg_list_empty(p):
     '''arg_list : '''
     p[0] = []
 
+# ---- Marcadores auxiliares de contexto ----
+
+def p_loop_enter(p):
+    '''loop_enter : '''
+    global loop_depth
+    loop_depth += 1
+
+def p_loop_exit(p):
+    '''loop_exit : '''
+    global loop_depth
+    loop_depth -= 1
+
 # ---- Error sintáctico ----
 
 def p_error(p):
@@ -812,7 +872,8 @@ def analyze(source, input_filename):
     """
     global symbol_table, scope_stack, record_table, function_table
     global quartets, _temp_counter, _label_counter
-    global has_errors, semantic_errors, current_return_type, _pending_params
+    global has_errors, semantic_errors, current_return_type, pending_function_return_type
+    global current_function_has_return, _pending_params, loop_depth
 
     # Reset completo del estado
     symbol_table      = {}
@@ -825,7 +886,10 @@ def analyze(source, input_filename):
     has_errors        = False
     semantic_errors   = []
     current_return_type = None
+    pending_function_return_type = None
+    current_function_has_return = False
     _pending_params   = []
+    loop_depth        = 0
 
     from lexer import lexer
     lexer.source = source
