@@ -28,6 +28,8 @@ _pending_params = []
 
 # Lista de cuartetos generados
 quartets = []
+quartet_buffers = []
+emit_enabled_stack = [True]
 
 # Contadores de temporales y etiquetas
 _temp_counter  = 0
@@ -37,6 +39,7 @@ _label_counter = 0
 semantic_errors = []
 has_errors = False
 loop_depth = 0
+loop_end_label_stack = []
 
 
 # =============================================================================
@@ -56,6 +59,8 @@ def declare_in_current_scope(name, info, lineno=None):
     if name in target:
         report_error(f"La variable '{name}' ya ha sido declarada.", lineno)
         return False
+    if 'quad' not in info:
+        info['quad'] = False
     target[name] = info
     return True
 
@@ -137,11 +142,39 @@ def new_label():
 
 
 def emit(op, arg1="_", arg2="_", result="_"):
+    if not emit_enabled_stack[-1]:
+        return
     def fmt(v):
         if v is True:  return 'true'
         if v is False: return 'false'
         return str(v)
-    quartets.append((fmt(op), fmt(arg1), fmt(arg2), fmt(result)))
+    quartet_buffers[-1].append((fmt(op), fmt(arg1), fmt(arg2), fmt(result)))
+
+
+def push_quartet_buffer():
+    quartet_buffers.append([])
+
+
+def pop_quartet_buffer():
+    if len(quartet_buffers) > 1:
+        return quartet_buffers.pop()
+    return quartet_buffers[0]
+
+
+def append_quartets(items):
+    if not emit_enabled_stack[-1]:
+        return
+    quartet_buffers[-1].extend(items)
+
+
+def push_emit_enabled(enabled):
+    inherited = emit_enabled_stack[-1]
+    emit_enabled_stack.append(inherited and enabled)
+
+
+def pop_emit_enabled():
+    if len(emit_enabled_stack) > 1:
+        emit_enabled_stack.pop()
 
 
 def apply_cast(val, src, dst):
@@ -258,18 +291,24 @@ def p_field_record(p):
 def p_function_def_basic(p):
     '''function_def : type ID LPAREN param_list RPAREN function_prep_basic func_open stmt_block RBRACE'''
     _finalize_function(p[2], p[1], p.lineno(2))
+    pop_quartet_buffer()
+    pop_emit_enabled()
     pop_scope()
     _register_function(p[1], p[2], p[4], p.lineno(2))
 
 def p_function_def_void(p):
     '''function_def : VOID ID LPAREN param_list RPAREN function_prep_void func_open stmt_block RBRACE'''
     _finalize_function(p[2], 'void', p.lineno(2))
+    pop_quartet_buffer()
+    pop_emit_enabled()
     pop_scope()
     _register_function('void', p[2], p[4], p.lineno(2))
 
 def p_function_def_record(p):
     '''function_def : ID ID LPAREN param_list RPAREN function_prep_record func_open stmt_block RBRACE'''
     _finalize_function(p[2], p[1], p.lineno(2))
+    pop_quartet_buffer()
+    pop_emit_enabled()
     pop_scope()
     ret_type = p[1]
     if not is_known_type(ret_type):
@@ -297,6 +336,8 @@ def p_func_open(p):
     global _pending_params, current_return_type, pending_function_return_type
     global current_function_has_return
     push_scope(_pending_params)
+    push_quartet_buffer()
+    push_emit_enabled(False)
     current_return_type = pending_function_return_type
     pending_function_return_type = None
     current_function_has_return = False
@@ -306,6 +347,7 @@ def p_block_open(p):
     '''block_open : LBRACE'''
     # Abrimos un scope vacío para bloques if/else/while/do-while
     push_scope([])
+    push_quartet_buffer()
 
 def p_param_list_multi(p):
     '''param_list : param_list COMMA param'''
@@ -350,7 +392,6 @@ def _register_function(ret_type, name, params, lineno):
                 report_error(f"Función '{name}' ya declarada con la misma firma.", lineno)
             return
     function_table[name].append({'params': params or [], 'return_type': ret_type})
-    emit('LABEL', f"{name}@func", '_', '_')
 
 def _finalize_function(name, ret_type, lineno):
     global current_return_type, current_function_has_return
@@ -402,21 +443,22 @@ def p_statement_semi(p):
 def p_decl_type_assign(p):
     '''decl_stmt : type ID ASSIGN expr'''
     vtype, vname = p[1], p[2]
-    etype, eval_ = p[4]
+    etype, eval_, equad = p[4]
     if not can_convert(etype, vtype):
         report_error(f"No se puede asignar '{etype}' a variable de tipo '{vtype}'.", p.lineno(3))
         declare_in_current_scope(vname, {'type': vtype, 'value': default_value(vtype)}, p.lineno(2))
         return
     cval, _ = apply_cast(eval_, etype, vtype)
-    emit('ASSIGN', cval, '_', vname)
-    declare_in_current_scope(vname, {'type': vtype, 'value': cval}, p.lineno(2))
+    if equad:
+        emit('ASSIGN', cval, '_', vname)
+    declare_in_current_scope(vname, {'type': vtype, 'value': cval, 'quad': equad}, p.lineno(2))
 
 def p_decl_type_only(p):
     '''decl_stmt : type ID'''
     vtype, vname = p[1], p[2]
     default = default_value(vtype)
     emit('ASSIGN', _literal(default, vtype), '_', vname)
-    declare_in_current_scope(vname, {'type': vtype, 'value': default}, p.lineno(2))
+    declare_in_current_scope(vname, {'type': vtype, 'value': default, 'quad': True}, p.lineno(2))
 
 def p_decl_type_list(p):
     '''decl_stmt : type id_list'''
@@ -425,18 +467,18 @@ def p_decl_type_list(p):
     for name in names:
         default = default_value(vtype)
         emit('ASSIGN', _literal(default, vtype), '_', name)
-        declare_in_current_scope(name, {'type': vtype, 'value': default})
+        declare_in_current_scope(name, {'type': vtype, 'value': default, 'quad': True})
 
 def p_decl_record_assign(p):
     '''decl_stmt : ID ID ASSIGN expr'''
     vtype, vname = p[1], p[2]
-    etype, eval_ = p[4]
+    etype, eval_, _ = p[4]
     if vtype not in record_table:
         report_error(f"El tipo '{vtype}' no ha sido declarado.", p.lineno(1))
         return
     if etype != vtype:
         report_error(f"No se puede asignar tipo '{etype}' a variable de tipo registro '{vtype}'.", p.lineno(3))
-    declare_in_current_scope(vname, {'type': vtype, 'value': eval_}, p.lineno(2))
+    declare_in_current_scope(vname, {'type': vtype, 'value': eval_, 'quad': False}, p.lineno(2))
 
 def p_decl_record_only(p):
     '''decl_stmt : ID ID'''
@@ -445,7 +487,7 @@ def p_decl_record_only(p):
         report_error(f"El tipo '{vtype}' no ha sido declarado.", p.lineno(1))
         return
     default = default_value(vtype)
-    declare_in_current_scope(vname, {'type': vtype, 'value': default}, p.lineno(2))
+    declare_in_current_scope(vname, {'type': vtype, 'value': default, 'quad': False}, p.lineno(2))
 
 def p_id_list(p):
     '''id_list : id_list COMMA ID
@@ -459,46 +501,48 @@ def p_id_list(p):
 
 def p_assign_stmt(p):
     '''assign_stmt : lvalue ASSIGN expr'''
-    lname, ltype = p[1]
-    etype, eval_ = p[3]
+    lname, ltype, lquad = p[1]
+    etype, eval_, equad = p[3]
     if ltype is None:
         return
     if not can_convert(etype, ltype):
         report_error(f"No se puede asignar '{etype}' a '{lname}' de tipo '{ltype}'.", p.lineno(2))
         return
     cval, _ = apply_cast(eval_, etype, ltype)
-    emit('ASSIGN', cval, '_', lname)
+    if lquad and equad:
+        emit('ASSIGN', cval, '_', lname)
     # Actualizar valor si es variable simple en algún scope
     sym = lookup_symbol(lname)
     if sym:
         sym['value'] = cval
+        sym['quad'] = lquad and equad
 
 def p_lvalue_id(p):
     '''lvalue : ID'''
     sym = lookup_symbol(p[1])
     if sym is None:
         report_error(f"La variable '{p[1]}' no ha sido declarada.", p.lineno(1))
-        p[0] = (p[1], None)
+        p[0] = (p[1], None, False)
     else:
-        p[0] = (p[1], sym['type'])
+        p[0] = (p[1], sym['type'], sym.get('quad', sym['type'] in BASIC_TYPES))
 
 def p_lvalue_dot(p):
     '''lvalue : lvalue DOT ID'''
-    lname, ltype = p[1]
+    lname, ltype, _ = p[1]
     fname = p[3]
     if ltype is None:
-        p[0] = (f"{lname}.{fname}", None)
+        p[0] = (f"{lname}.{fname}", None, False)
         return
     if ltype not in record_table:
         report_error(f"'{lname}' (tipo '{ltype}') no es un registro.")
-        p[0] = (f"{lname}.{fname}", None)
+        p[0] = (f"{lname}.{fname}", None, False)
         return
     matched = next((f for f in record_table[ltype] if f['name'] == fname), None)
     if matched is None:
         report_error(f"El registro '{ltype}' no tiene el campo '{fname}'.")
-        p[0] = (f"{lname}.{fname}", None)
+        p[0] = (f"{lname}.{fname}", None, False)
     else:
-        p[0] = (f"{lname}.{fname}", matched['type'])
+        p[0] = (f"{lname}.{fname}", matched['type'], False)
 
 # ---- Tipos ----
 
@@ -512,61 +556,87 @@ def p_type(p):
 # ---- Control de flujo ----
 
 def p_if_stmt_simple(p):
-    '''if_stmt : IF LPAREN expr RPAREN block_open stmt_block RBRACE'''
-    ctype, cval = p[3]
+    '''if_stmt : IF LPAREN cond_open expr RPAREN block_open stmt_block RBRACE'''
+    ctype, cval, cquad = p[4]
     label_end = new_label()
+    body_quartets = pop_quartet_buffer()
+    cond_quartets = pop_quartet_buffer()
     pop_scope()
     if ctype != 'boolean':
         report_error(f"Condición del 'if' debe ser 'boolean', se encontró '{ctype}'.", p.lineno(1))
-    emit('JUMPF', cval, label_end, '_')
-    emit('LABEL', label_end, '_', '_')
+    if cquad:
+        append_quartets(cond_quartets)
+        emit('JUMPF', cval, label_end, '_')
+        append_quartets(body_quartets)
+        emit('LABEL', label_end, '_', '_')
 
 def p_if_stmt_else(p):
-    '''if_stmt : IF LPAREN expr RPAREN block_open stmt_block RBRACE ELSE block_open stmt_block RBRACE'''
-    ctype, cval = p[3]
+    '''if_stmt : IF LPAREN cond_open expr RPAREN block_open stmt_block RBRACE ELSE block_open stmt_block RBRACE'''
+    ctype, cval, cquad = p[4]
     label_else = new_label()
     label_end  = new_label()
+    else_quartets = pop_quartet_buffer()
+    if_quartets = pop_quartet_buffer()
+    cond_quartets = pop_quartet_buffer()
     pop_scope()  # scope del else
     pop_scope()  # scope del if
     if ctype != 'boolean':
         report_error(f"Condición del 'if-else' debe ser 'boolean', se encontró '{ctype}'.", p.lineno(1))
-    emit('JUMPF', cval, label_else, '_')
-    emit('JUMP',  label_end, '_', '_')
-    emit('LABEL', label_else, '_', '_')
-    emit('LABEL', label_end,  '_', '_')
+    if cquad:
+        append_quartets(cond_quartets)
+        emit('JUMPF', cval, label_else, '_')
+        append_quartets(if_quartets)
+        emit('JUMP',  label_end, '_', '_')
+        emit('LABEL', label_else, '_', '_')
+        append_quartets(else_quartets)
+        emit('LABEL', label_end,  '_', '_')
 
 def p_while_stmt(p):
-    '''while_stmt : WHILE LPAREN expr RPAREN loop_enter block_open stmt_block RBRACE loop_exit'''
-    ctype, cval = p[3]
+    '''while_stmt : WHILE LPAREN cond_open expr RPAREN loop_enter block_open stmt_block RBRACE loop_exit'''
+    ctype, cval, cquad = p[4]
     label_start = new_label()
-    label_end   = new_label()
+    label_end   = p[6]
+    body_quartets = pop_quartet_buffer()
+    cond_quartets = pop_quartet_buffer()
     pop_scope()
     if ctype != 'boolean':
         report_error(f"Condición del 'while' debe ser 'boolean', se encontró '{ctype}'.", p.lineno(1))
-    emit('LABEL', label_start, '_', '_')
-    emit('JUMPF', cval, label_end, '_')
-    emit('JUMP',  label_start, '_', '_')
-    emit('LABEL', label_end,   '_', '_')
+    if cquad:
+        emit('LABEL', label_start, '_', '_')
+        append_quartets(cond_quartets)
+        emit('JUMPF', cval, label_end, '_')
+        append_quartets(body_quartets)
+        emit('JUMP',  label_start, '_', '_')
+        emit('LABEL', label_end,   '_', '_')
 
 def p_do_while_stmt(p):
-    '''do_while_stmt : DO loop_enter block_open stmt_block RBRACE WHILE LPAREN expr RPAREN loop_exit'''
-    ctype, cval = p[8]
+    '''do_while_stmt : DO loop_enter block_open stmt_block RBRACE WHILE LPAREN cond_open expr RPAREN loop_exit'''
+    ctype, cval, cquad = p[9]
     label_start = new_label()
+    label_end = p[2]
+    cond_quartets = pop_quartet_buffer()
+    body_quartets = pop_quartet_buffer()
     pop_scope()
     if ctype != 'boolean':
-        report_error(f"Condición del 'do-while' debe ser 'boolean', se encontró '{ctype}'.", p.lineno(5))
-    emit('LABEL', label_start, '_', '_')
-    emit('JUMPT', cval, label_start, '_')
+        report_error(f"Condición del 'do-while' debe ser 'boolean', se encontró '{ctype}'.", p.lineno(6))
+    if cquad:
+        emit('LABEL', label_start, '_', '_')
+        append_quartets(body_quartets)
+        append_quartets(cond_quartets)
+        emit('JUMPT', cval, label_start, '_')
+        emit('LABEL', label_end, '_', '_')
 
 def p_break_stmt(p):
     '''break_stmt : BREAK SEMICOLON'''
     if loop_depth <= 0:
         report_error("La sentencia 'break' solo puede aparecer dentro de un bucle.", p.lineno(1))
+    elif emit_enabled_stack[-1]:
+        emit('JUMP', loop_end_label_stack[-1], '_', '_')
 
 def p_return_stmt(p):
     '''return_stmt : RETURN expr SEMICOLON'''
     global current_function_has_return
-    etype, _ = p[2]
+    etype, _, _ = p[2]
 
     if current_return_type is None:
         report_error("La sentencia 'return' solo puede aparecer dentro de una función.", p.lineno(1))
@@ -586,8 +656,9 @@ def p_return_stmt(p):
 
 def p_print_stmt(p):
     '''print_stmt : PRINT LPAREN expr RPAREN SEMICOLON'''
-    _, val = p[3]
-    emit('PRINT', val, '_', '_')
+    _, val, qok = p[3]
+    if qok:
+        emit('PRINT', val, '_', '_')
 
 # ---- Expresiones binarias ----
 
@@ -612,18 +683,20 @@ def p_expr_div(p):
     p[0] = _arith(p[1], '/', p[3], p.lineno(2))
 
 def _arith(left, op, right, lineno):
-    t1, v1 = left
-    t2, v2 = right
+    t1, v1, q1 = left
+    t2, v2, q2 = right
     allowed = ('int', 'float') if op in ('*', '/') else ('int', 'float', 'char')
     common  = unify_types(t1, t2)
     if common is None or common not in allowed:
         report_error(f"Operación '{op}' no permitida entre '{t1}' y '{t2}'.", lineno)
-        return ('int', new_temp())
+        return ('int', new_temp(), False)
     v1c, _ = apply_cast(v1, t1, common)
     v2c, _ = apply_cast(v2, t2, common)
     t = new_temp()
-    emit(ARITH_OP[op], v1c, v2c, t)
-    return (common, t)
+    qok = q1 and q2
+    if qok:
+        emit(ARITH_OP[op], v1c, v2c, t)
+    return (common, t, qok)
 
 def p_expr_gt(p):
     '''expr : expr GT expr'''
@@ -646,8 +719,8 @@ def p_expr_eq(p):
     p[0] = _compare(p[1], '==', p[3], p.lineno(2))
 
 def _compare(left, op, right, lineno):
-    t1, v1 = left
-    t2, v2 = right
+    t1, v1, q1 = left
+    t2, v2, q2 = right
     allowed = ('int', 'float', 'char', 'boolean') if op == '==' else ('int', 'float', 'char')
     if t1 == 'boolean' and t2 == 'boolean' and op == '==':
         common = 'boolean'
@@ -655,12 +728,14 @@ def _compare(left, op, right, lineno):
         common = unify_types(t1, t2)
     if common is None or common not in allowed:
         report_error(f"Operación '{op}' no permitida entre '{t1}' y '{t2}'.", lineno)
-        return ('boolean', new_temp())
+        return ('boolean', new_temp(), False)
     v1c, _ = apply_cast(v1, t1, common)
     v2c, _ = apply_cast(v2, t2, common)
     t = new_temp()
-    emit(COMP_OP[op], v1c, v2c, t)
-    return ('boolean', t)
+    qok = q1 and q2
+    if qok:
+        emit(COMP_OP[op], v1c, v2c, t)
+    return ('boolean', t, qok)
 
 def p_expr_and(p):
     '''expr : expr AND expr'''
@@ -671,49 +746,54 @@ def p_expr_or(p):
     p[0] = _logic(p[1], '||', p[3], p.lineno(2))
 
 def _logic(left, op, right, lineno):
-    t1, v1 = left
-    t2, v2 = right
+    t1, v1, q1 = left
+    t2, v2, q2 = right
     if t1 != 'boolean' or t2 != 'boolean':
         report_error(f"Operación '{op}' solo entre 'boolean', encontrado '{t1}' y '{t2}'.", lineno)
-        return ('boolean', new_temp())
+        return ('boolean', new_temp(), False)
     t = new_temp()
-    emit(LOGIC_OP[op], v1, v2, t)
-    return ('boolean', t)
+    qok = q1 and q2
+    if qok:
+        emit(LOGIC_OP[op], v1, v2, t)
+    return ('boolean', t, qok)
 
 # ---- Expresiones unarias ----
 
 def p_expr_uminus(p):
     '''expr : MINUS expr %prec UMINUS'''
-    etype, eval_ = p[2]
+    etype, eval_, qok = p[2]
     if etype not in ('int', 'float', 'char'):
         report_error(f"Operador '-' unario no permitido para tipo '{etype}'.", p.lineno(1))
-        p[0] = (etype, eval_)
+        p[0] = (etype, eval_, False)
         return
     t = new_temp()
-    emit('UMINUS', eval_, '_', t)
-    p[0] = (etype, t)
+    if qok:
+        emit('UMINUS', eval_, '_', t)
+    p[0] = (etype, t, qok)
 
 def p_expr_uplus(p):
     '''expr : PLUS expr %prec UPLUS'''
-    etype, eval_ = p[2]
+    etype, eval_, qok = p[2]
     if etype not in ('int', 'float', 'char'):
         report_error(f"Operador '+' unario no permitido para tipo '{etype}'.", p.lineno(1))
-        p[0] = (etype, eval_)
+        p[0] = (etype, eval_, False)
         return
     t = new_temp()
-    emit('UPLUS', eval_, '_', t)
-    p[0] = (etype, t)
+    if qok:
+        emit('UPLUS', eval_, '_', t)
+    p[0] = (etype, t, qok)
 
 def p_expr_not(p):
     '''expr : NOT expr'''
-    etype, eval_ = p[2]
+    etype, eval_, qok = p[2]
     if etype != 'boolean':
         report_error(f"Operador '!' solo para 'boolean', encontrado '{etype}'.", p.lineno(1))
-        p[0] = ('boolean', eval_)
+        p[0] = ('boolean', eval_, False)
         return
     t = new_temp()
-    emit('NOT', eval_, '_', t)
-    p[0] = ('boolean', t)
+    if qok:
+        emit('NOT', eval_, '_', t)
+    p[0] = ('boolean', t, qok)
 
 # ---- Agrupación ----
 
@@ -729,7 +809,7 @@ def p_expr_new(p):
     args  = p[4]
     if rname not in record_table:
         report_error(f"El registro '{rname}' no ha sido declarado.", p.lineno(2))
-        p[0] = (rname, {})
+        p[0] = (rname, {}, False)
         return
     fields = record_table[rname]
     if len(args) != len(fields):
@@ -739,7 +819,7 @@ def p_expr_new(p):
     instance = {}
     for i, field in enumerate(fields):
         if i < len(args):
-            atype, aval = args[i]
+            atype, aval, _ = args[i]
             if not can_convert(atype, field['type']):
                 report_error(
                     f"Campo '{field['name']}' de '{rname}' es '{field['type']}', se pasó '{atype}'.",
@@ -747,7 +827,7 @@ def p_expr_new(p):
             instance[field['name']] = aval
         else:
             instance[field['name']] = default_value(field['type'])
-    p[0] = (rname, instance)
+    p[0] = (rname, instance, False)
 
 # ---- Llamada a función ----
 
@@ -757,16 +837,15 @@ def p_expr_call(p):
     args  = p[3]
     if fname not in function_table:
         report_error(f"La función '{fname}' no ha sido declarada.", p.lineno(1))
-        p[0] = ('int', new_temp())
+        p[0] = ('int', new_temp(), False)
         return
     arg_types = [a[0] for a in args]
     sig = _resolve_overload(fname, arg_types, p.lineno(1))
     if sig is None:
-        p[0] = ('int', new_temp())
+        p[0] = ('int', new_temp(), False)
         return
-    emit('CALL', f"{fname}@func", '_', '_')
     t = new_temp()
-    p[0] = (sig['return_type'], t)
+    p[0] = (sig['return_type'], t, False)
 
 def _resolve_overload(fname, arg_types, lineno):
     sigs = function_table[fname]
@@ -793,30 +872,30 @@ def _resolve_overload(fname, arg_types, lineno):
 
 def p_expr_lvalue(p):
     '''expr : lvalue'''
-    lname, ltype = p[1]
-    p[0] = ('int', lname) if ltype is None else (ltype, lname)
+    lname, ltype, lquad = p[1]
+    p[0] = ('int', lname, False) if ltype is None else (ltype, lname, lquad)
 
 # ---- Literales ----
 
 def p_expr_int(p):
     '''expr : INT_VALUE'''
-    p[0] = ('int', p[1])
+    p[0] = ('int', p[1], True)
 
 def p_expr_float(p):
     '''expr : FLOAT_VALUE'''
-    p[0] = ('float', p[1])
+    p[0] = ('float', p[1], True)
 
 def p_expr_char(p):
     '''expr : CHAR_VALUE'''
-    p[0] = ('char', p[1])
+    p[0] = ('char', p[1], True)
 
 def p_expr_true(p):
     '''expr : TRUE'''
-    p[0] = ('boolean', True)
+    p[0] = ('boolean', True, True)
 
 def p_expr_false(p):
     '''expr : FALSE'''
-    p[0] = ('boolean', False)
+    p[0] = ('boolean', False, True)
 
 # ---- Lista de argumentos ----
 
@@ -832,17 +911,28 @@ def p_arg_list_empty(p):
     '''arg_list : '''
     p[0] = []
 
+# ---- Marcadores auxiliares de cuartetos ----
+
+def p_cond_open(p):
+    '''cond_open : '''
+    push_quartet_buffer()
+
 # ---- Marcadores auxiliares de contexto ----
 
 def p_loop_enter(p):
     '''loop_enter : '''
     global loop_depth
     loop_depth += 1
+    label_end = new_label()
+    loop_end_label_stack.append(label_end)
+    p[0] = label_end
 
 def p_loop_exit(p):
     '''loop_exit : '''
     global loop_depth
     loop_depth -= 1
+    if loop_end_label_stack:
+        loop_end_label_stack.pop()
 
 # ---- Error sintáctico ----
 
@@ -871,9 +961,9 @@ def analyze(source, input_filename):
     Devuelve True si el análisis fue correcto, False si hubo errores.
     """
     global symbol_table, scope_stack, record_table, function_table
-    global quartets, _temp_counter, _label_counter
+    global quartets, quartet_buffers, emit_enabled_stack, _temp_counter, _label_counter
     global has_errors, semantic_errors, current_return_type, pending_function_return_type
-    global current_function_has_return, _pending_params, loop_depth
+    global current_function_has_return, _pending_params, loop_depth, loop_end_label_stack
 
     # Reset completo del estado
     symbol_table      = {}
@@ -881,6 +971,8 @@ def analyze(source, input_filename):
     record_table      = {}
     function_table    = {}
     quartets          = []
+    quartet_buffers   = [quartets]
+    emit_enabled_stack = [True]
     _temp_counter     = 0
     _label_counter    = 0
     has_errors        = False
@@ -890,6 +982,7 @@ def analyze(source, input_filename):
     current_function_has_return = False
     _pending_params   = []
     loop_depth        = 0
+    loop_end_label_stack = []
 
     from lexer import lexer
     lexer.source = source
