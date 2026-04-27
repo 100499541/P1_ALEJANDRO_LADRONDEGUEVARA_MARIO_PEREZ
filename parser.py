@@ -65,7 +65,7 @@ def declare_in_current_scope(name, info, lineno=None):
     return True
 
 def push_scope(params):
-    scope = {p['name']: {'type': p['type'], 'value': default_value(p['type'])}
+    scope = {p['name']: {'type': p['type'], 'value': default_value(p['type']), 'quad': p['type'] in BASIC_TYPES}
              for p in params}
     scope_stack.append(scope)
 
@@ -198,6 +198,51 @@ def _literal(value, vtype):
     if vtype == 'boolean': return 'true' if value else 'false'
     if vtype == 'char':    return repr(value) if value else "''"
     return str(value)
+
+
+def _expr_result(expr_type, quad_ref, quad_ok, actual_value):
+    return (expr_type, quad_ref, quad_ok, actual_value)
+
+
+def _convert_actual_value(value, src, dst):
+    if value is None:
+        return None
+    if src == dst:
+        return value
+    if src == 'char' and dst == 'int':
+        return ord(value) if value else 0
+    if src == 'char' and dst == 'float':
+        return float(ord(value) if value else 0)
+    if src == 'int' and dst == 'float':
+        return float(value)
+    return value
+
+
+def _update_record_value(path, value, value_type):
+    parts = path.split('.')
+    root = lookup_symbol(parts[0])
+    if root is None or not isinstance(root.get('value'), dict):
+        return
+    converted = _convert_actual_value(value, value_type, value_type)
+    target = root['value']
+    for part in parts[1:-1]:
+        if part not in target or not isinstance(target[part], dict):
+            return
+        target = target[part]
+    target[parts[-1]] = converted
+
+
+def _get_lvalue_actual(path):
+    parts = path.split('.')
+    root = lookup_symbol(parts[0])
+    if root is None:
+        return None
+    value = root.get('value')
+    for part in parts[1:]:
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
 
 
 # =============================================================================
@@ -443,15 +488,16 @@ def p_statement_semi(p):
 def p_decl_type_assign(p):
     '''decl_stmt : type ID ASSIGN expr'''
     vtype, vname = p[1], p[2]
-    etype, eval_, equad = p[4]
+    etype, eval_, equad, eactual = p[4]
     if not can_convert(etype, vtype):
         report_error(f"No se puede asignar '{etype}' a variable de tipo '{vtype}'.", p.lineno(3))
-        declare_in_current_scope(vname, {'type': vtype, 'value': default_value(vtype)}, p.lineno(2))
+        declare_in_current_scope(vname, {'type': vtype, 'value': default_value(vtype), 'quad': True}, p.lineno(2))
         return
     cval, _ = apply_cast(eval_, etype, vtype)
+    actual = _convert_actual_value(eactual, etype, vtype)
     if equad:
         emit('ASSIGN', cval, '_', vname)
-    declare_in_current_scope(vname, {'type': vtype, 'value': cval, 'quad': equad}, p.lineno(2))
+    declare_in_current_scope(vname, {'type': vtype, 'value': actual, 'quad': equad}, p.lineno(2))
 
 def p_decl_type_only(p):
     '''decl_stmt : type ID'''
@@ -472,13 +518,13 @@ def p_decl_type_list(p):
 def p_decl_record_assign(p):
     '''decl_stmt : ID ID ASSIGN expr'''
     vtype, vname = p[1], p[2]
-    etype, eval_, _ = p[4]
+    etype, eval_, _, eactual = p[4]
     if vtype not in record_table:
         report_error(f"El tipo '{vtype}' no ha sido declarado.", p.lineno(1))
         return
     if etype != vtype:
         report_error(f"No se puede asignar tipo '{etype}' a variable de tipo registro '{vtype}'.", p.lineno(3))
-    declare_in_current_scope(vname, {'type': vtype, 'value': eval_, 'quad': False}, p.lineno(2))
+    declare_in_current_scope(vname, {'type': vtype, 'value': eactual, 'quad': False}, p.lineno(2))
 
 def p_decl_record_only(p):
     '''decl_stmt : ID ID'''
@@ -502,20 +548,23 @@ def p_id_list(p):
 def p_assign_stmt(p):
     '''assign_stmt : lvalue ASSIGN expr'''
     lname, ltype, lquad = p[1]
-    etype, eval_, equad = p[3]
+    etype, eval_, equad, eactual = p[3]
     if ltype is None:
         return
     if not can_convert(etype, ltype):
         report_error(f"No se puede asignar '{etype}' a '{lname}' de tipo '{ltype}'.", p.lineno(2))
         return
     cval, _ = apply_cast(eval_, etype, ltype)
+    actual = _convert_actual_value(eactual, etype, ltype)
     if lquad and equad:
         emit('ASSIGN', cval, '_', lname)
     # Actualizar valor si es variable simple en algún scope
     sym = lookup_symbol(lname)
     if sym:
-        sym['value'] = cval
+        sym['value'] = actual
         sym['quad'] = lquad and equad
+    elif '.' in lname:
+        _update_record_value(lname, actual, ltype)
 
 def p_lvalue_id(p):
     '''lvalue : ID'''
@@ -557,7 +606,7 @@ def p_type(p):
 
 def p_if_stmt_simple(p):
     '''if_stmt : IF LPAREN cond_open expr RPAREN block_open stmt_block RBRACE'''
-    ctype, cval, cquad = p[4]
+    ctype, cval, cquad, _ = p[4]
     label_end = new_label()
     body_quartets = pop_quartet_buffer()
     cond_quartets = pop_quartet_buffer()
@@ -572,7 +621,7 @@ def p_if_stmt_simple(p):
 
 def p_if_stmt_else(p):
     '''if_stmt : IF LPAREN cond_open expr RPAREN block_open stmt_block RBRACE ELSE block_open stmt_block RBRACE'''
-    ctype, cval, cquad = p[4]
+    ctype, cval, cquad, _ = p[4]
     label_else = new_label()
     label_end  = new_label()
     else_quartets = pop_quartet_buffer()
@@ -593,7 +642,7 @@ def p_if_stmt_else(p):
 
 def p_while_stmt(p):
     '''while_stmt : WHILE LPAREN cond_open expr RPAREN loop_enter block_open stmt_block RBRACE loop_exit'''
-    ctype, cval, cquad = p[4]
+    ctype, cval, cquad, _ = p[4]
     label_start = new_label()
     label_end   = p[6]
     body_quartets = pop_quartet_buffer()
@@ -611,7 +660,7 @@ def p_while_stmt(p):
 
 def p_do_while_stmt(p):
     '''do_while_stmt : DO loop_enter block_open stmt_block RBRACE WHILE LPAREN cond_open expr RPAREN loop_exit'''
-    ctype, cval, cquad = p[9]
+    ctype, cval, cquad, _ = p[9]
     label_start = new_label()
     label_end = p[2]
     cond_quartets = pop_quartet_buffer()
@@ -636,7 +685,7 @@ def p_break_stmt(p):
 def p_return_stmt(p):
     '''return_stmt : RETURN expr SEMICOLON'''
     global current_function_has_return
-    etype, _, _ = p[2]
+    etype, _, _, _ = p[2]
 
     if current_return_type is None:
         report_error("La sentencia 'return' solo puede aparecer dentro de una función.", p.lineno(1))
@@ -656,7 +705,7 @@ def p_return_stmt(p):
 
 def p_print_stmt(p):
     '''print_stmt : PRINT LPAREN expr RPAREN SEMICOLON'''
-    _, val, qok = p[3]
+    _, val, qok, _ = p[3]
     if qok:
         emit('PRINT', val, '_', '_')
 
@@ -683,20 +732,32 @@ def p_expr_div(p):
     p[0] = _arith(p[1], '/', p[3], p.lineno(2))
 
 def _arith(left, op, right, lineno):
-    t1, v1, q1 = left
-    t2, v2, q2 = right
+    t1, v1, q1, a1 = left
+    t2, v2, q2, a2 = right
     allowed = ('int', 'float') if op in ('*', '/') else ('int', 'float', 'char')
     common  = unify_types(t1, t2)
     if common is None or common not in allowed:
         report_error(f"Operación '{op}' no permitida entre '{t1}' y '{t2}'.", lineno)
-        return ('int', new_temp(), False)
+        return _expr_result('int', new_temp(), False, None)
     v1c, _ = apply_cast(v1, t1, common)
     v2c, _ = apply_cast(v2, t2, common)
     t = new_temp()
     qok = q1 and q2
+    a1c = _convert_actual_value(a1, t1, common)
+    a2c = _convert_actual_value(a2, t2, common)
+    actual = None
+    if a1c is not None and a2c is not None:
+        if op == '+':
+            actual = a1c + a2c
+        elif op == '-':
+            actual = a1c - a2c
+        elif op == '*':
+            actual = a1c * a2c
+        elif op == '/':
+            actual = a1c / a2c if common == 'float' else a1c // a2c
     if qok:
         emit(ARITH_OP[op], v1c, v2c, t)
-    return (common, t, qok)
+    return _expr_result(common, t, qok, actual)
 
 def p_expr_gt(p):
     '''expr : expr GT expr'''
@@ -719,8 +780,8 @@ def p_expr_eq(p):
     p[0] = _compare(p[1], '==', p[3], p.lineno(2))
 
 def _compare(left, op, right, lineno):
-    t1, v1, q1 = left
-    t2, v2, q2 = right
+    t1, v1, q1, a1 = left
+    t2, v2, q2, a2 = right
     allowed = ('int', 'float', 'char', 'boolean') if op == '==' else ('int', 'float', 'char')
     if t1 == 'boolean' and t2 == 'boolean' and op == '==':
         common = 'boolean'
@@ -728,14 +789,28 @@ def _compare(left, op, right, lineno):
         common = unify_types(t1, t2)
     if common is None or common not in allowed:
         report_error(f"Operación '{op}' no permitida entre '{t1}' y '{t2}'.", lineno)
-        return ('boolean', new_temp(), False)
+        return _expr_result('boolean', new_temp(), False, None)
     v1c, _ = apply_cast(v1, t1, common)
     v2c, _ = apply_cast(v2, t2, common)
     t = new_temp()
     qok = q1 and q2
+    a1c = _convert_actual_value(a1, t1, common)
+    a2c = _convert_actual_value(a2, t2, common)
+    actual = None
+    if a1c is not None and a2c is not None:
+        if op == '>':
+            actual = a1c > a2c
+        elif op == '>=':
+            actual = a1c >= a2c
+        elif op == '<':
+            actual = a1c < a2c
+        elif op == '<=':
+            actual = a1c <= a2c
+        elif op == '==':
+            actual = a1c == a2c
     if qok:
         emit(COMP_OP[op], v1c, v2c, t)
-    return ('boolean', t, qok)
+    return _expr_result('boolean', t, qok, actual)
 
 def p_expr_and(p):
     '''expr : expr AND expr'''
@@ -746,54 +821,59 @@ def p_expr_or(p):
     p[0] = _logic(p[1], '||', p[3], p.lineno(2))
 
 def _logic(left, op, right, lineno):
-    t1, v1, q1 = left
-    t2, v2, q2 = right
+    t1, v1, q1, a1 = left
+    t2, v2, q2, a2 = right
     if t1 != 'boolean' or t2 != 'boolean':
         report_error(f"Operación '{op}' solo entre 'boolean', encontrado '{t1}' y '{t2}'.", lineno)
-        return ('boolean', new_temp(), False)
+        return _expr_result('boolean', new_temp(), False, None)
     t = new_temp()
     qok = q1 and q2
+    actual = None
+    if a1 is not None and a2 is not None:
+        actual = a1 and a2 if op == '&&' else a1 or a2
     if qok:
         emit(LOGIC_OP[op], v1, v2, t)
-    return ('boolean', t, qok)
+    return _expr_result('boolean', t, qok, actual)
 
 # ---- Expresiones unarias ----
 
 def p_expr_uminus(p):
     '''expr : MINUS expr %prec UMINUS'''
-    etype, eval_, qok = p[2]
+    etype, eval_, qok, actual = p[2]
     if etype not in ('int', 'float', 'char'):
         report_error(f"Operador '-' unario no permitido para tipo '{etype}'.", p.lineno(1))
-        p[0] = (etype, eval_, False)
+        p[0] = _expr_result(etype, eval_, False, None)
         return
     t = new_temp()
     if qok:
         emit('UMINUS', eval_, '_', t)
-    p[0] = (etype, t, qok)
+    actual_value = None if actual is None else -actual
+    p[0] = _expr_result(etype, t, qok, actual_value)
 
 def p_expr_uplus(p):
     '''expr : PLUS expr %prec UPLUS'''
-    etype, eval_, qok = p[2]
+    etype, eval_, qok, actual = p[2]
     if etype not in ('int', 'float', 'char'):
         report_error(f"Operador '+' unario no permitido para tipo '{etype}'.", p.lineno(1))
-        p[0] = (etype, eval_, False)
+        p[0] = _expr_result(etype, eval_, False, None)
         return
     t = new_temp()
     if qok:
         emit('UPLUS', eval_, '_', t)
-    p[0] = (etype, t, qok)
+    p[0] = _expr_result(etype, t, qok, actual)
 
 def p_expr_not(p):
     '''expr : NOT expr'''
-    etype, eval_, qok = p[2]
+    etype, eval_, qok, actual = p[2]
     if etype != 'boolean':
         report_error(f"Operador '!' solo para 'boolean', encontrado '{etype}'.", p.lineno(1))
-        p[0] = ('boolean', eval_, False)
+        p[0] = _expr_result('boolean', eval_, False, None)
         return
     t = new_temp()
     if qok:
         emit('NOT', eval_, '_', t)
-    p[0] = ('boolean', t, qok)
+    actual_value = None if actual is None else (not actual)
+    p[0] = _expr_result('boolean', t, qok, actual_value)
 
 # ---- Agrupación ----
 
@@ -809,7 +889,7 @@ def p_expr_new(p):
     args  = p[4]
     if rname not in record_table:
         report_error(f"El registro '{rname}' no ha sido declarado.", p.lineno(2))
-        p[0] = (rname, {}, False)
+        p[0] = _expr_result(rname, {}, False, {})
         return
     fields = record_table[rname]
     if len(args) != len(fields):
@@ -819,15 +899,15 @@ def p_expr_new(p):
     instance = {}
     for i, field in enumerate(fields):
         if i < len(args):
-            atype, aval, _ = args[i]
+            atype, aval, _, aactual = args[i]
             if not can_convert(atype, field['type']):
                 report_error(
                     f"Campo '{field['name']}' de '{rname}' es '{field['type']}', se pasó '{atype}'.",
                     p.lineno(2))
-            instance[field['name']] = aval
+            instance[field['name']] = _convert_actual_value(aactual, atype, field['type'])
         else:
             instance[field['name']] = default_value(field['type'])
-    p[0] = (rname, instance, False)
+    p[0] = _expr_result(rname, instance, False, instance)
 
 # ---- Llamada a función ----
 
@@ -837,15 +917,15 @@ def p_expr_call(p):
     args  = p[3]
     if fname not in function_table:
         report_error(f"La función '{fname}' no ha sido declarada.", p.lineno(1))
-        p[0] = ('int', new_temp(), False)
+        p[0] = _expr_result('int', new_temp(), False, None)
         return
     arg_types = [a[0] for a in args]
     sig = _resolve_overload(fname, arg_types, p.lineno(1))
     if sig is None:
-        p[0] = ('int', new_temp(), False)
+        p[0] = _expr_result('int', new_temp(), False, None)
         return
     t = new_temp()
-    p[0] = (sig['return_type'], t, False)
+    p[0] = _expr_result(sig['return_type'], t, False, None)
 
 def _resolve_overload(fname, arg_types, lineno):
     sigs = function_table[fname]
@@ -873,29 +953,33 @@ def _resolve_overload(fname, arg_types, lineno):
 def p_expr_lvalue(p):
     '''expr : lvalue'''
     lname, ltype, lquad = p[1]
-    p[0] = ('int', lname, False) if ltype is None else (ltype, lname, lquad)
+    if ltype is None:
+        p[0] = _expr_result('int', lname, False, None)
+    else:
+        actual = _get_lvalue_actual(lname)
+        p[0] = _expr_result(ltype, lname, lquad, actual)
 
 # ---- Literales ----
 
 def p_expr_int(p):
     '''expr : INT_VALUE'''
-    p[0] = ('int', p[1], True)
+    p[0] = _expr_result('int', p[1], True, p[1])
 
 def p_expr_float(p):
     '''expr : FLOAT_VALUE'''
-    p[0] = ('float', p[1], True)
+    p[0] = _expr_result('float', p[1], True, p[1])
 
 def p_expr_char(p):
     '''expr : CHAR_VALUE'''
-    p[0] = ('char', p[1], True)
+    p[0] = _expr_result('char', p[1], True, p[1])
 
 def p_expr_true(p):
     '''expr : TRUE'''
-    p[0] = ('boolean', True, True)
+    p[0] = _expr_result('boolean', True, True, True)
 
 def p_expr_false(p):
     '''expr : FALSE'''
-    p[0] = ('boolean', False, True)
+    p[0] = _expr_result('boolean', False, True, False)
 
 # ---- Lista de argumentos ----
 
@@ -1030,7 +1114,7 @@ def _write_records(filename):
     base = filename.rsplit('.', 1)[0]
     with open(base + '.records', 'w', encoding='utf-8') as f:
         for rname, fields in record_table.items():
-            fstr = ', '.join(f"{fd['name']}:{fd['type']}" for fd in fields)
+            fstr = ','.join(f"{fd['name']}:{fd['type']}" for fd in fields)
             f.write(f"{rname}:[{fstr}]\n")
 
 def _write_functions(filename):

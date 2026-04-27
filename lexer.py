@@ -62,23 +62,28 @@ def find_column(token, source=None):
         last_cr = -1
     return token.lexpos - last_cr - 1
 
-def set_columns(t):
+def set_columns(t, lexeme=None):
+    if lexeme is None:
+        lexeme = t.value
     t.col_start = find_column(t)
-    t.col_end = t.col_start + len(t.value)
+    t.col_end = t.col_start + len(lexeme)
 
 # -----------------------------
 # Literales e identificadores
 # -----------------------------
 def t_FLOAT_VALUE(t):
     r'\d+\.\d+([e][+-]?\d+)?|\d+[e][+-]?\d+'
-    set_columns(t)
+    lexeme = t.value
+    t.raw_value = lexeme
+    set_columns(t, lexeme)
     t.value = float(t.value)
     return t
 
 def t_INT_VALUE(t):
     r'0b[01]+|0x[0-9A-F]+|0[0-7]*|0|[1-9][0-9]*'
-    set_columns(t)
     lexeme = t.value
+    t.raw_value = lexeme
+    set_columns(t, lexeme)
     if lexeme.startswith('0b'):
         t.value = int(lexeme[2:], 2)
     elif lexeme.startswith('0x'):
@@ -91,13 +96,15 @@ def t_INT_VALUE(t):
 
 def t_CHAR_VALUE(t):
     r"'[^']'"
-    set_columns(t)
+    t.raw_value = t.value
+    set_columns(t, t.raw_value)
     t.value = t.value[1:-1]
     return t
 
 def t_ID(t):
     r'[a-zA-Z_][a-zA-Z0-9_]*'
-    set_columns(t)
+    t.raw_value = t.value
+    set_columns(t, t.raw_value)
     t.type = reserved.get(t.value, 'ID')
     if t.type == 'TRUE':
         t.value = True

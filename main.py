@@ -18,10 +18,11 @@ def run_lexer(filename):
             tok = lexer.token()
             if not tok:
                 break
+            raw_value = getattr(tok, 'raw_value', tok.value)
             if not hasattr(tok, 'col_start'):
                 tok.col_start = find_column(tok, data)
-                tok.col_end = tok.col_start + len(str(tok.value))
-            f_out.write(f"{tok.type}, {tok.value}, {tok.lineno}, {tok.col_start}, {tok.col_end}\n")
+                tok.col_end = tok.col_start + len(str(raw_value))
+            f_out.write(f"{tok.type}, {raw_value}, {tok.lineno}, {tok.col_start}, {tok.col_end}\n")
 
 def run_analysis(filename):
     from parser import analyze
